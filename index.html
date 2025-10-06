@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Simple Car Racer</title>
+  <style>
+    :root {
+      --road:#2b2b2b; --lane:#bdbdbd; --bg:#111; --car:#ffd400; --ob:#ff4d4d; --text:#f2f2f2;
+    }
+    html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    .wrap{display:flex;flex-direction:column;align-items:center;gap:10px;padding:16px}
+    .hud{display:flex;justify-content:space-between;gap:16px;width:min(520px,95vw)}
+    .hud>*{background:#1b1b1b;border:1px solid #2a2a2a;border-radius:12px;padding:8px 12px}
+    canvas{background:var(--road);display:block;width:min(520px,95vw);height:auto;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+    .btns{display:flex;gap:8px}
+    .btn{user-select:none;-webkit-user-select:none;background:#1b1b1b;border:1px solid #2a2a2a;border-radius:12px;padding:6px 10px;cursor:pointer}
+    .mobile-hint{opacity:.7;font-size:.9rem}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hud">
+      <div>คะแนน: <span id="score">0</span></div>
+      <div>ความเร็ว: <span id="speed">1.0</span>x</div>
+      <div class="btns">
+        <button id="restart" class="btn">เริ่มใหม่ (Space)</button>
+      </div>
+    </div>
+    <canvas id="game" width="480" height="640" aria-label="เกมแข่งรถแบบง่าย"></canvas>
+    <div class="mobile-hint">มือถือ: แตะซ้าย = เลี้ยวซ้าย / แตะขวา = เลี้ยวขวา / แตะสองนิ้ว = เริ่มใหม่</div>
+  </div>
+
+  <script>
+    const cvs = document.getElementById('game');
+    const ctx = cvs.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const speedEl = document.getElementById('speed');
+    const restartBtn = document.getElementById('restart');
+
+    const W = 480, H = 640;
+    const laneCount = 3;
+    const laneW = W / laneCount;
+    const laneLineW = 6;
+
+    const car = { w: laneW * 0.6, h: 90, x: W/2, y: H-120, vx:0 };
+    const input = { left:false, right:false };
+
+    let obstacles = [];
+    let lastSpawn = 0;
+    let spawnEvery = 900;
+    let running = true;
+    let score = 0;
+    let speed = 1.0;
+
+    function reset(){
+      obstacles = [];
+      lastSpawn = 0;
+      spawnEvery = 900;
+      running = true;
+      score = 0; speed = 1.0;
+      car.x = W/2; car.vx = 0;
+      loopPrev = performance.now();
+      requestAnimationFrame(loop);
+      drawSplash('พร้อม!\nลูกศรซ้าย/ขวา หรือ A/D เพื่อเลี้ยว');
+    }
+
+    function randLane(){
+      const i = Math.floor(Math.random()*laneCount);
+      const x = i * laneW + laneW/2;
+      return x;
+    }
+
+    function spawn(){
+      const ob = {
+        w: laneW * (0.55 + Math.random()*0.25),
+        h: 80 + Math.random()*40,
+        x: randLane(),
+        y: -100,
+        vy: 3.0 * speed + Math.random()*1.5
+      };
+      obstacles.push(ob);
+    }
+
+    function clamp(v,min,max){return Math.max(min,Math.min(max,v));}
+
+    window.addEventListener('keydown', e=>{
+      if(e.code==='ArrowLeft' || e.code==='KeyA') input.left=true;
+      if(e.code==='ArrowRight'|| e.code==='KeyD') input.right=true;
+      if(e.code==='Space') { if(!running) reset(); }
+    });
+    window.addEventListener('keyup', e=>{
+      if(e.code==='ArrowLeft' || e.code==='KeyA') input.left=false;
+      if(e.code==='ArrowRight'|| e.code==='KeyD') input.right=false;
+    });
+
+    let touchIds = new Set();
+    cvs.addEventListener('touchstart', e=>{
+      for(const t of e.changedTouches) touchIds.add(t.identifier);
+      if(touchIds.size>=2 && !running) reset();
+      for(const t of e.changedTouches){
+        const rect = cvs.getBoundingClientRect();
+        const x = (t.clientX-rect.left)/rect.width;
+        if(x < 0.5) input.left=true; else input.right=true;
+      }
+      e.preventDefault();
+    },{passive:false});
+    cvs.addEventListener('touchend', e=>{
+      for(const t of e.changedTouches) touchIds.delete(t.identifier);
+      input.left=false; input.right=false;
+      e.preventDefault();
+    },{passive:false});
+
+    restartBtn.addEventListener('click', ()=>{ if(!running) reset(); });
+
+    function drawRoad(scroll){
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--road');
+      ctx.fillRect(0,0,W,H);
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--lane');
+      ctx.lineWidth = laneLineW;
+      ctx.setLineDash([30,30]);
+      ctx.lineDashOffset = -scroll*120;
+      for(let i=1;i<laneCount;i++){
+        const x = i*laneW;
+        ctx.beginPath();
+        ctx.moveTo(x,0); ctx.lineTo(x,H);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
+
+    function drawCar(){
+      ctx.save();
+      ctx.translate(car.x, car.y);
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--car');
+      const w = car.w, h = car.h, r = 12;
+      roundRect(-w/2,-h/2,w,h,r);
+      ctx.fill();
+      ctx.fillStyle = '#333';
+      roundRect(-w*0.35,-h*0.35,w*0.7,h*0.25,8); ctx.fill();
+      ctx.fillStyle = '#fff7b0';
+      ctx.fillRect(-w*0.45,-h*0.52,w*0.16,h*0.08);
+      ctx.fillRect(w*0.29,-h*0.52,w*0.16,h*0.08);
+      ctx.restore();
+    }
+
+    function roundRect(x,y,w,h,r){
+      const rr = Math.min(r, Math.abs(w/2), Math.abs(h/2));
+      ctx.beginPath();
+      ctx.moveTo(x+rr,y);
+      ctx.arcTo(x+w,y,x+w,y+h,rr);
+      ctx.arcTo(x+w,y+h,x,y+h,rr);
+      ctx.arcTo(x,y+h,x,y,rr);
+      ctx.arcTo(x,y,x+w,y,rr);
+      ctx.closePath();
+    }
+
+    function drawOb(ob){
+      ctx.save();
+      ctx.translate(ob.x, ob.y);
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--ob');
+      roundRect(-ob.w/2,-ob.h/2, ob.w, ob.h, 10); ctx.fill();
+      ctx.restore();
+    }
+
+    function AABB(ax,ay,aw,ah,bx,by,bw,bh){
+      return Math.abs(ax-bx) < (aw/2 + bw/2) && Math.abs(ay-by) < (ah/2 + bh/2);
+    }
+
+    let loopPrev = performance.now();
+    let roadScroll = 0;
+
+    function loop(now){
+      const dt = Math.min(32, now - loopPrev);
+      loopPrev = now;
+      if(!running){ drawFrame(0); return; }
+
+      const steer = (input.left? -1:0) + (input.right? 1:0);
+      car.vx += steer * 0.8;
+      car.vx *= 0.88;
+      car.x += car.vx;
+      car.x = clamp(car.x, car.w/2+6, W - car.w/2-6);
+
+      lastSpawn += dt;
+      if(lastSpawn > spawnEvery){
+        spawn();
+        lastSpawn = 0;
+        if(spawnEvery > 450) spawnEvery -= 8;
+        speed += 0.01;
+      }
+
+      for(const ob of obstacles){
+        ob.y += ob.vy * (dt/16);
+        if(AABB(car.x,car.y,car.w,car.h, ob.x,ob.y,ob.w,ob.h)){
+          running = false;
+        }
+      }
+      obstacles = obstacles.filter(ob=> ob.y - ob.h/2 < H+20);
+      score += dt * 0.02 * speed;
+
+      drawFrame(dt);
+      if(running) requestAnimationFrame(loop);
+      else drawGameOver();
+    }
+
+    function drawFrame(dt){
+      roadScroll += dt/1000 * speed;
+      drawRoad(roadScroll);
+      for(const ob of obstacles) drawOb(ob);
+      drawCar();
+      scoreEl.textContent = Math.floor(score);
+      speedEl.textContent = speed.toFixed(1);
+    }
+
+    function drawGameOver(){
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(0,0,W,H);
+      ctx.fillStyle = '#fff';
+      ctx.textAlign='center';
+      ctx.font = 'bold 36px system-ui,Segoe UI,Roboto,Arial';
+      ctx.fillText('ชนแล้ว!', W/2, H/2-10);
+      ctx.font = '18px system-ui,Segoe UI,Roboto,Arial';
+      ctx.fillText('กด Space หรือปุ่มด้านบนเพื่อเริ่มใหม่', W/2, H/2+24);
+      ctx.restore();
+    }
+
+    function drawSplash(text){
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillRect(0,0,W,H);
+      ctx.fillStyle = '#fff';
+      ctx.textAlign='center';
+      ctx.font = 'bold 24px system-ui,Segoe UI,Roboto,Arial';
+      const lines = String(text).split('\n');
+      lines.forEach((t,i)=> ctx.fillText(t, W/2, H/2 + i*26));
+      ctx.restore();
+    }
+
+    reset();
+  </script>
+</body>
+</html>
