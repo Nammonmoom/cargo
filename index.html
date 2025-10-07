@@ -3,241 +3,287 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Simple Car Racer</title>
+  <title>Rialo: Hook & Pulse Runner — Prototype</title>
+  <meta name="description" content="Endless runner prototype themed around Rialo (Webhook / Pulse / Reliability).">
   <style>
-    :root {
-      --road:#2b2b2b; --lane:#bdbdbd; --bg:#111; --car:#ffd400; --ob:#ff4d4d; --text:#f2f2f2;
+    :root{
+      --bg:#0b0b0b; --panel:#121212; --road:#151515; --lane:#3a3a3a;
+      --pulse:#ffd400; --hook:#00d0ff; --error:#ff4d4d; --shield:#8aff8a; --text:#f4f4f4;
+      --accent:#ffd400;
     }
-    html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
-    .wrap{display:flex;flex-direction:column;align-items:center;gap:10px;padding:16px}
-    .hud{display:flex;justify-content:space-between;gap:16px;width:min(520px,95vw)}
-    .hud>*{background:#1b1b1b;border:1px solid #2a2a2a;border-radius:12px;padding:8px 12px}
-    canvas{background:var(--road);display:block;width:min(520px,95vw);height:auto;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
-    .btns{display:flex;gap:8px}
-    .btn{user-select:none;-webkit-user-select:none;background:#1b1b1b;border:1px solid #2a2a2a;border-radius:12px;padding:6px 10px;cursor:pointer}
-    .mobile-hint{opacity:.7;font-size:.9rem}
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;background:linear-gradient(180deg,#090909,#0f0f0f);color:var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans", sans-serif;}
+    .wrap{display:flex;flex-direction:column;align-items:center;gap:12px;padding:16px}
+    h1{font-size:clamp(18px,3vw,24px);margin:4px 0 0;letter-spacing:.5px}
+    .hud{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+    .chip{background:var(--panel);border:1px solid #262626;border-radius:12px;padding:6px 10px;min-width:110px;text-align:center}
+    .canvas-shell{position:relative}
+    canvas{background:var(--road);width:min(520px,95vw);height:auto;border-radius:16px;display:block;
+      box-shadow:0 10px 40px rgba(0,0,0,.45);border:1px solid #1f1f1f}
+    .controls{opacity:.85;font-size:.9rem}
+    .btn{background:var(--panel);border:1px solid #262626;border-radius:12px;padding:6px 10px;cursor:pointer;color:var(--text)}
+    .brand{opacity:.7;font-size:.85rem}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <div class="hud">
-      <div>คะแนน: <span id="score">0</span></div>
-      <div>ความเร็ว: <span id="speed">1.0</span>x</div>
-      <div class="btns">
-        <button id="restart" class="btn">เริ่มใหม่ (Space)</button>
-      </div>
+    <h1>Rialo: <span style="color:var(--accent)">Hook & Pulse</span> Runner — Prototype</h1>
+    <div class="hud" role="status" aria-live="polite">
+      <div class="chip">คะแนน: <b id="score">0</b></div>
+      <div class="chip">คอมโบ: <b id="combo">x1.0</b></div>
+      <div class="chip">ความเร็ว: <b id="speed">1.0</b>x</div>
+      <div class="chip">ชีวิต: <b id="lives">1</b></div>
+      <button id="restart" class="btn">เริ่มใหม่ (Space)</button>
     </div>
-    <canvas id="game" width="480" height="640" aria-label="เกมแข่งรถแบบง่าย"></canvas>
-    <div class="mobile-hint">มือถือ: แตะซ้าย = เลี้ยวซ้าย / แตะขวา = เลี้ยวขวา / แตะสองนิ้ว = เริ่มใหม่</div>
+    <div class="canvas-shell">
+      <canvas id="game" width="480" height="720" aria-label="Rialo Hook & Pulse Runner canvas"></canvas>
+    </div>
+    <div class="controls">
+      ควบคุม: ⬅️/➡️ หรือ A/D = เปลี่ยนเลน • J = ยิง Hook • กดค้าง Shift = บูสต์สั้น ๆ<br/>
+      มือถือ: แตะซ้าย/ขวาเพื่อเลี้ยว • แตะขอบบนตรงกลาง = ยิง Hook • แตะสองนิ้วเมื่อจบเกม = เริ่มใหม่
+    </div>
+    <div class="brand">Rialo theme • by nammon</div>
   </div>
 
-  <script>
-    const cvs = document.getElementById('game');
-    const ctx = cvs.getContext('2d');
-    const scoreEl = document.getElementById('score');
-    const speedEl = document.getElementById('speed');
-    const restartBtn = document.getElementById('restart');
+<script>
+(() => {
+  const W = 480, H = 720;
+  const cvs = document.getElementById('game');
+  const ctx = cvs.getContext('2d');
+  const elScore = document.getElementById('score');
+  const elCombo = document.getElementById('combo');
+  const elSpeed = document.getElementById('speed');
+  const elLives = document.getElementById('lives');
+  const restartBtn = document.getElementById('restart');
 
-    const W = 480, H = 640;
-    const laneCount = 3;
-    const laneW = W / laneCount;
-    const laneLineW = 6;
+  const CSS = getComputedStyle(document.documentElement);
+  const C = {
+    road: CSS.getPropertyValue('--road').trim(),
+    lane: CSS.getPropertyValue('--lane').trim(),
+    pulse: CSS.getPropertyValue('--pulse').trim(),
+    hook: CSS.getPropertyValue('--hook').trim(),
+    err: CSS.getPropertyValue('--error').trim(),
+    shield: CSS.getPropertyValue('--shield').trim(),
+    text: CSS.getPropertyValue('--text').trim()
+  };
 
-    const car = { w: laneW * 0.6, h: 90, x: W/2, y: H-120, vx:0 };
-    const input = { left:false, right:false };
+  const lanesBase = 3;
+  let laneCount = lanesBase;
+  let laneW = W / laneCount;
+  const laneLineW = 6;
 
-    let obstacles = [];
-    let lastSpawn = 0;
-    let spawnEvery = 900;
-    let running = true;
-    let score = 0;
-    let speed = 1.0;
+  const player = { w: laneW * 0.58, h: 96, x: W/2, y: H-140, vx:0, shield:false };
 
-    function reset(){
-      obstacles = [];
-      lastSpawn = 0;
-      spawnEvery = 900;
-      running = true;
-      score = 0; speed = 1.0;
-      car.x = W/2; car.vx = 0;
-      loopPrev = performance.now();
-      requestAnimationFrame(loop);
-      drawSplash('พร้อม!\nลูกศรซ้าย/ขวา หรือ A/D เพื่อเลี้ยว');
+  const input = { left:false, right:false, hook:false, boost:false };
+  let pulses = [], nodes = [], errors = [], powerups = [];
+  let score = 0, combo = 1.0, comboTimer = 0, speed = 1.0;
+  let lastPulse = 0, lastError = 0, lastNode = 0, lastPU = 0;
+  let running = true, lives = 1, roadScroll = 0, tPrev = performance.now();
+
+  function reset(){
+    laneCount = lanesBase; laneW = W / laneCount;
+    Object.assign(player, { w: laneW*0.58, h:96, x:W/2, y:H-140, vx:0, shield:false });
+    pulses = []; nodes = []; errors = []; powerups = [];
+    score = 0; combo = 1.0; comboTimer = 0; speed = 1.0;
+    lastPulse = lastError = lastNode = lastPU = 0;
+    running = true; lives = 1; roadScroll = 0;
+    tPrev = performance.now();
+    splash('พร้อม!\\nซ้าย/ขวา = เลน • J = Hook • Shift ค้าง = Boost');
+    requestAnimationFrame(loop);
+  }
+
+  const clamp = (v,min,max)=> Math.max(min, Math.min(max, v));
+  const rr = (x,y,w,h,r) => {
+    const rad = Math.min(r, Math.abs(w/2), Math.abs(h/2));
+    ctx.beginPath();
+    ctx.moveTo(x+rad,y);
+    ctx.arcTo(x+w,y,x+w,y+h,rad);
+    ctx.arcTo(x+w,y+h,x,y+h,rad);
+    ctx.arcTo(x,y+h,x,y,rad);
+    ctx.arcTo(x,y,x+w,y,rad);
+    ctx.closePath();
+  };
+  const AABB = (ax,ay,aw,ah,bx,by,bw,bh) =>
+    Math.abs(ax-bx) < (aw/2 + bw/2) && Math.abs(ay-by) < (ah/2 + bh/2);
+
+  const randLaneX = (n = laneCount) => {
+    const i = (Math.random()*n)|0;
+    return i * (W/n) + (W/n)/2;
+  };
+
+  function spawnPulse(){ pulses.push({x:randLaneX(), y:-40, r:14, vy: 2.2*speed + Math.random()*1.4}); }
+  function spawnError(){
+    const w = (W/laneCount) * (0.5 + Math.random()*0.35);
+    errors.push({x:randLaneX(), y:-80, w, h:90, vy: 2.6*speed + Math.random()*1.6});
+  }
+  function spawnNode(){ nodes.push({x:randLaneX(), y:-120, w:46, h:46, vy: 2.2*speed + 1.4, window: 70, hit:false}); }
+  function spawnPowerup(){ const type = Math.random()<0.55? 'retry':'shield'; powerups.push({type, x:randLaneX(), y:-60, r:16, vy: 2.2*speed + 1.2}); }
+
+  window.addEventListener('keydown', e=>{
+    if(e.code==='ArrowLeft'||e.code==='KeyA') input.left=true;
+    if(e.code==='ArrowRight'||e.code==='KeyD') input.right=true;
+    if(e.code==='KeyJ') input.hook=true;
+    if(e.code==='ShiftLeft'||e.code==='ShiftRight') input.boost=true;
+    if(e.code==='Space'){ if(!running) reset(); }
+  });
+  window.addEventListener('keyup', e=>{
+    if(e.code==='ArrowLeft'||e.code==='KeyA') input.left=false;
+    if(e.code==='ArrowRight'||e.code==='KeyD') input.right=false;
+    if(e.code==='KeyJ') input.hook=false;
+    if(e.code==='ShiftLeft'||e.code==='ShiftRight') input.boost=false;
+  });
+
+  let touches = new Set();
+  cvs.addEventListener('touchstart', e=>{
+    for(const t of e.changedTouches) touches.add(t.identifier);
+    const r = cvs.getBoundingClientRect();
+    for(const t of e.changedTouches){
+      const x = (t.clientX-r.left)/r.width;
+      const y = (t.clientY-r.top)/r.height;
+      if(y < 0.22 && x > 0.4 && x < 0.6) input.hook = true;
+      else if(x < 0.5) input.left=true; else input.right=true;
     }
+    if(!running && touches.size>=2) reset();
+    e.preventDefault();
+  }, {passive:false});
+  cvs.addEventListener('touchend', e=>{
+    for(const t of e.changedTouches) touches.delete(t.identifier);
+    input.left=false; input.right=false; input.hook=false;
+    e.preventDefault();
+  }, {passive:false});
 
-    function randLane(){
-      const i = Math.floor(Math.random()*laneCount);
-      const x = i * laneW + laneW/2;
-      return x;
-    }
+  restartBtn.addEventListener('click', ()=>{ if(!running) reset(); });
 
-    function spawn(){
-      const ob = {
-        w: laneW * (0.55 + Math.random()*0.25),
-        h: 80 + Math.random()*40,
-        x: randLane(),
-        y: -100,
-        vy: 3.0 * speed + Math.random()*1.5
-      };
-      obstacles.push(ob);
-    }
+  function drawRoad(scroll){
+    ctx.fillStyle = C.road; ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--lane');
+    ctx.lineWidth = 6; ctx.setLineDash([28,28]); ctx.lineDashOffset = -scroll*140;
+    for(let i=1;i<laneCount;i++){ const x = i*(W/laneCount); ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+    ctx.setLineDash([]);
+  }
+  function drawPlayer(){
+    ctx.save(); ctx.translate(player.x, player.y);
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent');
+    rr(-player.w/2,-player.h/2, player.w, player.h, 14); ctx.fill();
+    ctx.fillStyle = '#20252a'; rr(-player.w*0.35,-player.h*0.3, player.w*0.7, player.h*0.22, 8); ctx.fill();
+    ctx.fillStyle = '#fff8aa'; rr(-player.w*0.42,-player.h*0.55, player.w*0.25, 10, 6); ctx.fill(); rr(player.w*0.17,-player.h*0.55, player.w*0.25, 10, 6); ctx.fill();
+    if(player.shield){ ctx.strokeStyle = C.shield; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, -6, Math.max(player.w,player.h)*0.65, 0, Math.PI*2); ctx.stroke(); }
+    ctx.restore();
+  }
+  function drawPulse(p){ ctx.save(); ctx.translate(p.x,p.y); ctx.fillStyle = C.pulse; ctx.beginPath(); ctx.arc(0,0,p.r,0,Math.PI*2); ctx.fill(); ctx.fillStyle = '#ffe26a'; ctx.fillRect(-2,-p.r-6,4,8); ctx.restore(); }
+  function drawError(eo){ ctx.save(); ctx.translate(eo.x, eo.y); ctx.fillStyle = C.err; rr(-eo.w/2,-eo.h/2, eo.w, eo.h, 10); ctx.fill(); ctx.fillStyle = '#2a0000'; rr(-8,-16,16,32,4); ctx.fill(); ctx.restore(); }
+  function drawNode(n){ ctx.save(); ctx.translate(n.x,n.y); ctx.strokeStyle = C.hook; ctx.lineWidth = 2; ctx.globalAlpha = 0.9; ctx.beginPath(); ctx.arc(0,0,n.window,0,Math.PI*2); ctx.stroke(); ctx.globalAlpha = 1; ctx.fillStyle = C.hook; rr(-n.w/2,-n.h/2, n.w, n.h, 8); ctx.fill(); ctx.fillStyle = '#003b46'; rr(-n.w*0.12,-n.h*0.35, n.w*0.24, n.h*0.7, 5); ctx.fill(); ctx.restore(); }
+  function drawPU(pu){ ctx.save(); ctx.translate(pu.x, pu.y); ctx.fillStyle = pu.type==='retry'? '#9ad3ff' : C.shield; ctx.beginPath(); ctx.arc(0,0,pu.r,0,Math.PI*2); ctx.fill(); ctx.fillStyle = '#0a0a0a'; ctx.font='bold 12px ui-sans-serif,system-ui'; ctx.textAlign='center'; ctx.fillText(pu.type==='retry'?'R':'S',0,4); ctx.restore(); }
 
-    function clamp(v,min,max){return Math.max(min,Math.min(max,v));}
+  function splash(text){
+    drawRoad(0); drawPlayer(); ctx.save(); ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = '#fff'; ctx.textAlign='center'; ctx.font = 'bold 22px ui-sans-serif,system-ui';
+    (''+text).split('\\n').forEach((t,i)=> ctx.fillText(t, W/2, H/2 + i*26)); ctx.restore();
+  }
+  function gameOver(){
+    ctx.save(); ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = '#fff'; ctx.textAlign='center';
+    ctx.font = 'bold 36px ui-sans-serif,system-ui'; ctx.fillText('Game Over', W/2, H/2 - 18);
+    ctx.font = '16px ui-sans-serif,system-ui'; ctx.fillText('กด Space หรือปุ่มเริ่มใหม่ เพื่อเล่นอีกครั้ง', W/2, H/2 + 16);
+    ctx.restore();
+  }
 
-    window.addEventListener('keydown', e=>{
-      if(e.code==='ArrowLeft' || e.code==='KeyA') input.left=true;
-      if(e.code==='ArrowRight'|| e.code==='KeyD') input.right=true;
-      if(e.code==='Space') { if(!running) reset(); }
-    });
-    window.addEventListener('keyup', e=>{
-      if(e.code==='ArrowLeft' || e.code==='KeyA') input.left=false;
-      if(e.code==='ArrowRight'|| e.code==='KeyD') input.right=false;
-    });
+  function loop(tNow){
+    const dt = Math.min(34, tNow - tPrev); tPrev = tNow;
+    if(!running){ drawFrame(dt); gameOver(); return; }
 
-    let touchIds = new Set();
-    cvs.addEventListener('touchstart', e=>{
-      for(const t of e.changedTouches) touchIds.add(t.identifier);
-      if(touchIds.size>=2 && !running) reset();
-      for(const t of e.changedTouches){
-        const rect = cvs.getBoundingClientRect();
-        const x = (t.clientX-rect.left)/rect.width;
-        if(x < 0.5) input.left=true; else input.right=true;
+    const steer = (input.left? -1:0) + (input.right? 1:0);
+    player.vx += steer * 0.85; player.vx *= 0.88; player.x += player.vx;
+    player.x = Math.max(player.w/2+8, Math.min(W - player.w/2-8, player.x));
+
+    const boostMul = input.boost? 1.6 : 1.0;
+
+    lastPulse += dt; lastError += dt; lastNode += dt; lastPU += dt;
+    if(lastPulse > 480/boostMul){ spawnPulse(); lastPulse = 0; }
+    if(lastError > 740/boostMul){ spawnError(); lastError = 0; }
+    if(lastNode > 1800/boostMul){ spawnNode(); lastNode = 0; }
+    if(lastPU > 5200){ spawnPowerup(); lastPU = 0; }
+
+    if(score > 400 && laneCount===3){ laneCount = 4; laneW = W/laneCount; player.w = laneW*0.56; }
+    speed += 0.0009 * (dt/16) * (1 + 0.15*Math.min(5, combo-1));
+    comboTimer += dt;
+
+    const vyBase = (dt/16) * (2.4*speed) * boostMul;
+    for(const p of pulses){ p.y += vyBase + p.vy*0.6; }
+    for(const n of nodes){ n.y += vyBase + n.vy*0.6; }
+    for(const e of errors){ e.y += vyBase + e.vy*0.6; }
+    for(const pu of powerups){ pu.y += vyBase + pu.vy*0.6; }
+
+    for(const p of pulses){
+      if(Math.abs(player.x-p.x) < (player.w/2 + p.r) && Math.abs(player.y-p.y) < (player.h/2 + p.r)){
+        score += Math.round(10 * combo);
+        combo = Math.min(5, combo + 0.1);
+        comboTimer = 0;
+        p.y = H + 999;
       }
-      e.preventDefault();
-    },{passive:false});
-    cvs.addEventListener('touchend', e=>{
-      for(const t of e.changedTouches) touchIds.delete(t.identifier);
-      input.left=false; input.right=false;
-      e.preventDefault();
-    },{passive:false});
-
-    restartBtn.addEventListener('click', ()=>{ if(!running) reset(); });
-
-    function drawRoad(scroll){
-      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--road');
-      ctx.fillRect(0,0,W,H);
-      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--lane');
-      ctx.lineWidth = laneLineW;
-      ctx.setLineDash([30,30]);
-      ctx.lineDashOffset = -scroll*120;
-      for(let i=1;i<laneCount;i++){
-        const x = i*laneW;
-        ctx.beginPath();
-        ctx.moveTo(x,0); ctx.lineTo(x,H);
-        ctx.stroke();
-      }
-      ctx.setLineDash([]);
     }
 
-    function drawCar(){
-      ctx.save();
-      ctx.translate(car.x, car.y);
-      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--car');
-      const w = car.w, h = car.h, r = 12;
-      roundRect(-w/2,-h/2,w,h,r);
-      ctx.fill();
-      ctx.fillStyle = '#333';
-      roundRect(-w*0.35,-h*0.35,w*0.7,h*0.25,8); ctx.fill();
-      ctx.fillStyle = '#fff7b0';
-      ctx.fillRect(-w*0.45,-h*0.52,w*0.16,h*0.08);
-      ctx.fillRect(w*0.29,-h*0.52,w*0.16,h*0.08);
-      ctx.restore();
-    }
-
-    function roundRect(x,y,w,h,r){
-      const rr = Math.min(r, Math.abs(w/2), Math.abs(h/2));
-      ctx.beginPath();
-      ctx.moveTo(x+rr,y);
-      ctx.arcTo(x+w,y,x+w,y+h,rr);
-      ctx.arcTo(x+w,y+h,x,y+h,rr);
-      ctx.arcTo(x,y+h,x,y,rr);
-      ctx.arcTo(x,y,x+w,y,rr);
-      ctx.closePath();
-    }
-
-    function drawOb(ob){
-      ctx.save();
-      ctx.translate(ob.x, ob.y);
-      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--ob');
-      roundRect(-ob.w/2,-ob.h/2, ob.w, ob.h, 10); ctx.fill();
-      ctx.restore();
-    }
-
-    function AABB(ax,ay,aw,ah,bx,by,bw,bh){
-      return Math.abs(ax-bx) < (aw/2 + bw/2) && Math.abs(ay-by) < (ah/2 + bh/2);
-    }
-
-    let loopPrev = performance.now();
-    let roadScroll = 0;
-
-    function loop(now){
-      const dt = Math.min(32, now - loopPrev);
-      loopPrev = now;
-      if(!running){ drawFrame(0); return; }
-
-      const steer = (input.left? -1:0) + (input.right? 1:0);
-      car.vx += steer * 0.8;
-      car.vx *= 0.88;
-      car.x += car.vx;
-      car.x = clamp(car.x, car.w/2+6, W - car.w/2-6);
-
-      lastSpawn += dt;
-      if(lastSpawn > spawnEvery){
-        spawn();
-        lastSpawn = 0;
-        if(spawnEvery > 450) spawnEvery -= 8;
-        speed += 0.01;
-      }
-
-      for(const ob of obstacles){
-        ob.y += ob.vy * (dt/16);
-        if(AABB(car.x,car.y,car.w,car.h, ob.x,ob.y,ob.w,ob.h)){
-          running = false;
+    if(input.hook){
+      input.hook = false;
+      let success = false;
+      for(const n of nodes){
+        const dy = Math.abs(n.y - player.y);
+        const dx = Math.abs(n.x - player.x);
+        if(dy < n.window && dx < laneW*0.35){
+          success = true; n.hit = true; n.y = H + 999;
+          score += Math.round(100 * combo);
+          combo = Math.min(5, combo + 0.5);
+          comboTimer = 0;
+          break;
         }
       }
-      obstacles = obstacles.filter(ob=> ob.y - ob.h/2 < H+20);
-      score += dt * 0.02 * speed;
-
-      drawFrame(dt);
-      if(running) requestAnimationFrame(loop);
-      else drawGameOver();
+      if(!success){ combo = Math.max(1, combo - 0.2); }
     }
 
-    function drawFrame(dt){
-      roadScroll += dt/1000 * speed;
-      drawRoad(roadScroll);
-      for(const ob of obstacles) drawOb(ob);
-      drawCar();
-      scoreEl.textContent = Math.floor(score);
-      speedEl.textContent = speed.toFixed(1);
+    for(const pu of powerups){
+      if(Math.abs(player.x-pu.x) < (player.w/2 + pu.r) && Math.abs(player.y-pu.y) < (player.h/2 + pu.r)){
+        if(pu.type==='retry'){ lives += 1; } else { player.shield = true; }
+        pu.y = H + 999;
+      }
     }
 
-    function drawGameOver(){
-      ctx.save();
-      ctx.fillStyle = 'rgba(0,0,0,0.55)';
-      ctx.fillRect(0,0,W,H);
-      ctx.fillStyle = '#fff';
-      ctx.textAlign='center';
-      ctx.font = 'bold 36px system-ui,Segoe UI,Roboto,Arial';
-      ctx.fillText('ชนแล้ว!', W/2, H/2-10);
-      ctx.font = '18px system-ui,Segoe UI,Roboto,Arial';
-      ctx.fillText('กด Space หรือปุ่มด้านบนเพื่อเริ่มใหม่', W/2, H/2+24);
-      ctx.restore();
+    for(const e of errors){
+      if(Math.abs(player.x-e.x) < (player.w/2 + e.w/2) && Math.abs(player.y-e.y) < (player.h/2 + e.h/2)){
+        if(player.shield){ player.shield = false; e.y = H + 999; combo = Math.max(1, combo-0.5); }
+        else { lives -= 1; e.y = H + 999; combo = 1; if(lives<=0){ running=false; } }
+      }
     }
 
-    function drawSplash(text){
-      ctx.save();
-      ctx.fillStyle = 'rgba(0,0,0,0.35)';
-      ctx.fillRect(0,0,W,H);
-      ctx.fillStyle = '#fff';
-      ctx.textAlign='center';
-      ctx.font = 'bold 24px system-ui,Segoe UI,Roboto,Arial';
-      const lines = String(text).split('\n');
-      lines.forEach((t,i)=> ctx.fillText(t, W/2, H/2 + i*26));
-      ctx.restore();
-    }
+    pulses = pulses.filter(o => o.y < H+40);
+    nodes  = nodes.filter(o => o.y < H+60);
+    errors = errors.filter(o => o.y < H+60);
+    powerups = powerups.filter(o => o.y < H+40);
 
-    reset();
-  </script>
+    if(comboTimer > 3500) { combo = Math.max(1, combo - 0.02*(dt/16)); }
+    score += 0.02 * dt * speed;
+
+    drawFrame(dt);
+    if(running) requestAnimationFrame(loop); else gameOver();
+  }
+
+  function drawFrame(dt){
+    roadScroll += dt/1000 * (1.2*speed);
+    drawRoad(roadScroll);
+    for(const p of pulses) drawPulse(p);
+    for(const n of nodes) drawNode(n);
+    for(const e of errors) drawError(e);
+    for(const pu of powerups) drawPU(pu);
+    drawPlayer();
+
+    elScore.textContent = Math.floor(score);
+    elCombo.textContent = 'x' + combo.toFixed(1);
+    elSpeed.textContent = speed.toFixed(1);
+    elLives.textContent = lives;
+  }
+
+  reset();
+})();
+</script>
 </body>
 </html>
